@@ -74,6 +74,9 @@
 
 * { box-sizing: border-box; }
 
+/* hidden 속성이 있으면 display 지정보다 우선해서 숨김 (바로가기 카드, 필터 영역 등) */
+[hidden] { display: none !important; }
+
 html { -webkit-text-size-adjust: 100%; }
 
 body {
