@@ -5,16 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>알약 모양 찾기 | 약 알아보기</title>
   <link rel="icon" href="data:,">
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header id="site-header"></header>
 
   <main class="wrap">
-    <h1>알약 모양 찾기</h1>
-    <p class="lead">약 이름 일부로 낱알 정보를 불러온 뒤, 모양·색상·표시 문자로 좁혀서 손에 있는 알약과 비교합니다.</p>
+    <div class="page-head">
+      <span class="eyebrow">의약품 낱알식별 정보</span>
+      <h1>알약 모양 찾기</h1>
+      <p class="lead">약 이름 일부로 낱알 정보를 불러온 뒤, 모양·색상·새겨진 글자로 좁혀서 손에 있는 알약과 비교합니다.</p>
+    </div>
 
-    <form class="search-bar" id="search-form">
+    <form class="search-bar" id="search-form" role="search">
       <input type="search" id="q" placeholder="약 이름 일부 (예: 타이레놀)" autocomplete="off" aria-label="약 이름">
       <button class="btn" type="submit">불러오기</button>
     </form>
@@ -59,7 +63,7 @@
       history.replaceState(null, '', `?q=${encodeURIComponent(query)}`);
       filters.hidden = true;
       meta.replaceChildren();
-      showStatus(results, '불러오는 중…');
+      showSkeleton(results, 6);
       try {
         // 이 페이지는 XML로 요청해 DOMParser로 파싱 (실패 시 JSON으로 재요청)
         const data = await apiGetPreferXml('pill', { item_name: query, pageNo: 1, numOfRows: 100 });
@@ -108,7 +112,7 @@
       const shown = state.items.filter(matches);
       const metaParts = [
         el('span', { text: `불러온 ${state.items.length}건 중 ${shown.length}건 표시` }),
-        el('span', { class: 'badge', text: `응답 형식 ${state.format}` })
+        formatBadge(state.format)
       ];
       if (state.total > state.items.length) {
         metaParts.push(el('span', { text: `(전체 ${state.total}건 중 앞 ${state.items.length}건만 불러옴. 이름을 더 구체적으로 입력하세요)` }));
@@ -131,7 +135,7 @@
             imgEl(med.image, med.name),
             el('div', { class: 'card-body' }, [
               el('p', { class: 'card-title', text: med.name }),
-              el('p', { class: 'card-sub', text: `${clean(item.ETC_OTC_NAME)} · ${clean(item.CLASS_NAME)}` }),
+              el('div', { class: 'badge-row' }, [typeBadge(item.ETC_OTC_NAME), clean(item.CLASS_NAME) ? el('span', { class: 'card-sub', text: clean(item.CLASS_NAME) }) : null]),
               el('p', { class: 'card-text', text: `${clean(item.DRUG_SHAPE)} · ${clean(item.COLOR_CLASS1)} · 표시: ${printed}` }),
               el('p', { class: 'card-sub', text: size })
             ]),
