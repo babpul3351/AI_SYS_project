@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>내 약 보관함 | 약 알아보기</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="site-header"></header>
+
+  <main class="wrap">
+    <h1>내 약 보관함</h1>
+    <p class="lead">담아 둔 약을 최대 3개까지 골라 효능과 주의사항을 나란히 비교합니다. 보관함은 이 브라우저에만 저장됩니다.</p>
+
+    <div class="tabs" role="tablist">
+      <button class="tab active" type="button" data-tab="mine">내 보관함</button>
+      <button class="tab" type="button" data-tab="otc">편의점 상비약</button>
+    </div>
+
+    <section id="tab-mine">
+      <div id="dup"></div>
+      <div id="list"></div>
+      <p style="margin-top:12px">
+        <button class="btn" type="button" id="compare-btn" disabled>선택한 약 비교하기</button>
+      </p>
+      <div id="compare"></div>
+    </section>
+
+    <section id="tab-otc" hidden>
+      <p class="lead">편의점 등에서 살 수 있는 안전상비의약품 목록입니다. 이름을 누르면 검색 화면으로 이동합니다.</p>
+      <p class="meta-line" id="otc-meta"></p>
+      <div id="otc"></div>
+    </section>
+  </main>
+
+  <footer id="site-footer"></footer>
+
+  <script src="common.js"></script>
+  <script>
+    renderLayout('cabinet.html');
+
+    const MAX_COMPARE = 3;
+    const selected = new Set();
+    const listBox = document.getElementById('list');
+    const dupBox = document.getElementById('dup');
+    const compareBtn = document.getElementById('compare-btn');
+    const compareBox = document.getElementById('compare');
+
+    // ===== 탭 전환 =====
+    let otcLoaded = false;
+    document.querySelectorAll('.tab').forEach((tab) => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t === tab));
+        const name = tab.dataset.tab;
+        document.getElementById('tab-mine').hidden = name !== 'mine';
+        document.getElementById('tab-otc').hidden = name !== 'otc';
+        if (name === 'otc' && !otcLoaded) {
+          otcLoaded = true;
+          loadOtc();
+        }
+      });
+    });
+
+    // ===== 내 보관함 =====
+    function renderList() {
+      const list = loadCabinet();
+      // 삭제된 약은 선택에서도 제거
+      [...selected].forEach((s) => { if (!list.some((m) => m.seq === s)) selected.delete(s); });
+
+      const dups = findDuplicateIngredients(list);
+      dupBox.replaceChildren(...dups.map(([ing, names]) =>
+        el('p', { class: 'notice', text: `같은 성분(${ing})으로 보이는 약이 ${names.length}개 있습니다: ${names.join(', ')}. 함께 먹기 전에 약사와 상의하세요. (약 이름 기준 판별)` })
+      ));
+
+      if (list.length === 0) {
+        listBox.replaceChildren(el('p', { class: 'status', text: '보관함이 비어 있습니다. 검색 결과에서 "보관함에 담기"를 눌러 보세요.' }));
+        updateCompareBtn();
+        return;
+      }
+
+      listBox.replaceChildren(...list.map((m) => {
+        const checkbox = el('input', { type: 'checkbox', 'aria-label': `${m.name} 비교 선택` });
+        checkbox.checked = selected.has(m.seq);
+        checkbox.addEventListener('change', () => {
+          if (checkbox.checked) {
+            if (selected.size >= MAX_COMPARE) {
+              checkbox.checked = false;
+              alert(`비교는 최대 ${MAX_COMPARE}개까지 가능합니다.`);
+              return;
+            }
+            selected.add(m.seq);
+          } else {
+            selected.delete(m.seq);
+          }
+          updateCompareBtn();
+        });
+
+        const removeBtn = el('button', { type: 'button', class: 'btn btn-ghost', text: '삭제' });
+        removeBtn.addEventListener('click', () => {
+          toggleCabinet(m);
+          renderList();
+        });
+
+        return el('div', { class: 'cabinet-item' }, [
+          checkbox,
+          imgEl(m.image, m.name),
+          el('div', { class: 'grow' }, [
+            el('a', { href: `detail.html?seq=${encodeURIComponent(m.seq)}&name=${encodeURIComponent(m.name)}`, text: m.name }),
+            el('p', { class: 'card-sub', text: m.entp })
+          ]),
+          removeBtn
+        ]);
+      }));
+      updateCompareBtn();
+    }
+
+    function updateCompareBtn() {
+      compareBtn.disabled = selected.size < 2;
+      compareBtn.textContent = selected.size < 2
+        ? '2개 이상 선택하면 비교할 수 있습니다'
+        : `선택한 ${selected.size}개 비교하기`;
+    }
+
+    // ===== 비교 =====
+    const COMPARE_ROWS = [
+      ['efcyQesitm', '효능'],
+      ['useMethodQesitm', '복용 방법'],
+      ['atpnWarnQesitm', '경고'],
+      ['intrcQesitm', '상호작용'],
+      ['seQesitm', '부작용']
+    ];
+
+    compareBtn.addEventListener('click', async () => {
+      const meds = loadCabinet().filter((m) => selected.has(m.seq));
+      showStatus(compareBox, '비교 정보를 불러오는 중…');
+
+      // 선택한 약들을 동시에 조회
+      const results = await Promise.allSettled(
+        meds.map((m) => apiGet('easy', { itemName: m.name, pageNo: 1, numOfRows: 50 }))
+      );
+      const infos = meds.map((m, i) => (results[i].status === 'fulfilled' ? findBySeq(results[i].value.items, m.seq) : null));
+
+      const head = el('tr', {}, [el('th', { text: '항목' }), ...meds.map((m) => el('th', { text: m.name }))]);
+      const body = COMPARE_ROWS.map(([key, label]) =>
+        el('tr', {}, [
+          el('th', { text: label }),
+          ...infos.map((info) => el('td', { text: info ? clean(info[key]) || '정보 없음' : 'e약은요 정보 없음' }))
+        ])
+      );
+      compareBox.replaceChildren(
+        el('h2', { text: '비교 결과', style: 'font-size:1.1rem;margin-top:20px' }),
+        el('div', { class: 'table-scroll' }, [
+          el('table', { class: 'compare' }, [el('thead', {}, [head]), el('tbody', {}, body)])
+        ])
+      );
+    });
+
+    // ===== 편의점 상비약 (XML로 요청해 DOMParser로 파싱, 실패 시 JSON) =====
+    async function loadOtc() {
+      const box = document.getElementById('otc');
+      const meta = document.getElementById('otc-meta');
+      showStatus(box, '불러오는 중…');
+      try {
+        const data = await apiGetPreferXml('otc', { pageNo: 1, numOfRows: 50 });
+        meta.replaceChildren(
+          el('span', { text: `${data.totalCount}개 품목` }),
+          el('span', { class: 'badge', text: `응답 형식 ${data.format}` })
+        );
+        const rows = data.items.map((item) =>
+          el('tr', {}, [
+            el('td', {}, [el('a', { href: `index.html?q=${encodeURIComponent(clean(item.PRDLST_NM))}`, text: clean(item.PRDLST_NM) })]),
+            el('td', { text: clean(item.BSSH_NM) }),
+            el('td', { text: clean(item.VLD_PRD_YMD) }),
+            el('td', { text: clean(item.STRG_MTH_CONT) })
+          ])
+        );
+        box.replaceChildren(
+          el('div', { class: 'table-scroll' }, [
+            el('table', { class: 'compare' }, [
+              el('thead', {}, [el('tr', {}, ['제품명', '업체', '유효기간', '보관방법'].map((t) => el('th', { text: t })))]),
+              el('tbody', {}, rows)
+            ])
+          ])
+        );
+      } catch (err) {
+        showStatus(box, errorMessage(err), 'error');
+      }
+    }
+
+    renderList();
+  </script>
+</body>
+</html>
