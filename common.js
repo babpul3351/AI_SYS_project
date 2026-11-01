@@ -4,6 +4,7 @@
  */
 
 // ===== 설정 =====
+// TODO: 본인 Worker 주소로 바꿀 것 (끝에 / 없이)
 const WORKER_URL = 'https://aisysproject.swells200483.workers.dev';
 
 const CABINET_KEY = 'medcabinet.v1';
