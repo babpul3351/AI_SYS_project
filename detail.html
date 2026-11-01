@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>약 상세 정보 | 약 알아보기</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="site-header"></header>
+
+  <main class="wrap" id="main">
+    <p class="status">불러오는 중…</p>
+  </main>
+
+  <footer id="site-footer"></footer>
+
+  <script src="common.js"></script>
+  <script>
+    renderLayout('');
+
+    const main = document.getElementById('main');
+    const seq = getParam('seq');
+    const name = getParam('name');
+
+    // e약은요 필드 → 화면 제목 (필드명은 실제 응답으로 확인함)
+    const EASY_SECTIONS = [
+      ['efcyQesitm', '효능'],
+      ['useMethodQesitm', '복용 방법'],
+      ['atpnWarnQesitm', '복용 전 경고'],
+      ['atpnQesitm', '주의사항'],
+      ['intrcQesitm', '함께 먹으면 안 되는 약·음식'],
+      ['seQesitm', '부작용'],
+      ['depositMethodQesitm', '보관 방법']
+    ];
+
+    // 낱알식별 필드 → 표 항목 (필드명은 실제 응답으로 확인함)
+    const PILL_ROWS = [
+      ['CHART', '성상'],
+      ['DRUG_SHAPE', '모양'],
+      ['COLOR_CLASS1', '색상'],
+      ['PRINT_FRONT', '앞면 표시'],
+      ['PRINT_BACK', '뒷면 표시'],
+      ['FORM_CODE_NAME', '제형'],
+      ['CLASS_NAME', '분류'],
+      ['ETC_OTC_NAME', '전문/일반'],
+      ['ITEM_PERMIT_DATE', '허가일']
+    ];
+
+    async function loadDetail() {
+      if (!seq || !name) {
+        showStatus(main, '잘못된 접근입니다. 검색 화면에서 약을 선택하세요.', 'error');
+        return;
+      }
+
+      // 세 API를 동시에 호출. 하나가 실패해도 나머지로 화면을 구성 (Promise.allSettled)
+      const [easyRes, pillRes, permitRes] = await Promise.allSettled([
+        apiGet('easy', { itemName: name, pageNo: 1, numOfRows: 50 }),
+        apiGet('pill', { item_name: name, pageNo: 1, numOfRows: 50 }),
+        apiGet('permit', { item_name: name, pageNo: 1, numOfRows: 50 })
+      ]);
+
+      // 품목 코드(seq)가 같은 항목을 각 응답에서 찾아 하나로 합침
+      const pick = (res) => (res.status === 'fulfilled' ? findBySeq(res.value.items, seq) : null);
+      const easy = pick(easyRes);
+      const pill = pick(pillRes);
+      const permit = pick(permitRes);
+
+      if (!easy && !pill && !permit) {
+        showStatus(main, '이 약의 정보를 찾지 못했습니다. 이름이 바뀌었거나 데이터에 없는 약일 수 있습니다.', 'error');
+        return;
+      }
+
+      const med = {
+        seq,
+        name: (easy && easy.itemName) || (pill && pill.ITEM_NAME) || name,
+        entp: (easy && easy.entpName) || (pill && pill.ENTP_NAME) || '',
+        image: (easy && easy.itemImage) || (pill && pill.ITEM_IMAGE) || ''
+      };
+      document.title = `${med.name} | 약 알아보기`;
+
+      const parts = [renderHead(med), renderDuplicateNotice(med)];
+
+      if (easy) {
+        EASY_SECTIONS.forEach(([key, label]) => {
+          if (clean(easy[key])) {
+            parts.push(el('section', { class: 'section' }, [
+              el('h2', { text: label }),
+              el('p', { class: 'prewrap', text: clean(easy[key]) })
+            ]));
+          }
+        });
+      } else {
+        parts.push(el('p', { class: 'notice', text: 'e약은요(환자용 복약정보)에 등록되지 않은 약입니다. 전문의약품은 대부분 등록되어 있지 않습니다.' }));
+      }
+
+      if (pill) parts.push(renderPill(pill));
+      if (permit) parts.push(renderPermit(permit));
+      parts.push(renderSources([
+        ['e약은요 (복약정보)', easyRes, easy],
+        ['낱알식별 (외형)', pillRes, pill],
+        ['제품 허가정보', permitRes, permit]
+      ]));
+
+      main.replaceChildren(...parts.filter(Boolean));
+    }
+
+    function renderHead(med) {
+      const ingredient = extractIngredient(med.name);
+      return el('div', { class: 'detail-head' }, [
+        imgEl(med.image, med.name),
+        el('div', {}, [
+          el('h1', { text: med.name }),
+          el('p', { class: 'lead', text: med.entp }),
+          ingredient ? el('p', {}, [el('span', { class: 'badge', text: `성분 ${ingredient}` })]) : null,
+          el('p', { class: 'card-sub', text: `품목기준코드 ${med.seq}` }),
+          cabinetButton(med)
+        ])
+      ]);
+    }
+
+    /** 보관함에 같은 성분의 다른 약이 있으면 경고 (약 이름 괄호 속 성분 기준) */
+    function renderDuplicateNotice(med) {
+      const ingredient = extractIngredient(med.name);
+      if (!ingredient) return null;
+      const others = loadCabinet().filter((m) => m.seq !== med.seq && extractIngredient(m.name) === ingredient);
+      if (others.length === 0) return null;
+      return el('p', { class: 'notice', text:
+        `보관함의 ${others.map((m) => m.name).join(', ')}와(과) 같은 성분(${ingredient})으로 보입니다. ` +
+        '같은 성분을 겹쳐 먹으면 하루 최대 용량을 넘을 수 있으니 약사와 상의하세요. (약 이름 기준 판별이라 정확하지 않을 수 있습니다)' });
+    }
+
+    function renderPill(pill) {
+      const rows = PILL_ROWS
+        .filter(([key]) => clean(pill[key]))
+        .map(([key, label]) => el('tr', {}, [el('th', { text: label }), el('td', { text: clean(pill[key]) })]));
+      if ([pill.LENG_LONG, pill.LENG_SHORT, pill.THICK].every(Boolean)) {
+        rows.push(el('tr', {}, [el('th', { text: '크기(장축×단축×두께)' }),
+          el('td', { text: `${pill.LENG_LONG} × ${pill.LENG_SHORT} × ${pill.THICK} mm` })]));
+      }
+      return el('section', { class: 'section' }, [
+        el('h2', { text: '알약 외형' }),
+        el('table', { class: 'kv' }, [el('tbody', {}, rows)])
+      ]);
+    }
+
+    /** 허가정보는 필드 구성을 아직 확인하지 못해, 짧은 값만 원본 필드명 그대로 표시 */
+    function renderPermit(permit) {
+      const rows = Object.entries(permit)
+        .filter(([, v]) => typeof v === 'string' && clean(v) && clean(v).length <= 120)
+        .map(([k, v]) => el('tr', {}, [el('th', { text: k }), el('td', { text: clean(v) })]));
+      return el('section', { class: 'section' }, [
+        el('details', {}, [
+          el('summary', { text: '제품 허가정보 (원본 필드)' }),
+          el('table', { class: 'kv' }, [el('tbody', {}, rows)])
+        ])
+      ]);
+    }
+
+    /** 어떤 API에서 데이터를 가져왔는지 표시 (발표 시 조인 결과 설명용) */
+    function renderSources(list) {
+      return el('section', { class: 'section' }, [
+        el('h2', { text: '데이터 출처' }),
+        el('ul', { class: 'source-list' }, list.map(([label, res, found]) => {
+          let text;
+          if (res.status === 'rejected') text = `실패 (${res.reason && res.reason.message})`;
+          else if (!found) text = `응답은 받았으나 같은 품목코드 없음 (${res.value.format})`;
+          else text = `연결됨 (${res.value.format})`;
+          return el('li', { text: `${label}: ${text}` });
+        }))
+      ]);
+    }
+
+    loadDetail().catch((err) => showStatus(main, errorMessage(err), 'error'));
+  </script>
+</body>
+</html>
