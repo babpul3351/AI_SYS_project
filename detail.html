@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>약 상세 정보 | 약 알아보기</title>
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -53,20 +54,18 @@
         return;
       }
 
-      // 세 API를 동시에 호출. 하나가 실패해도 나머지로 화면을 구성 (Promise.allSettled)
-      const [easyRes, pillRes, permitRes] = await Promise.allSettled([
+      // 두 API를 동시에 호출. 하나가 실패해도 나머지로 화면을 구성 (Promise.allSettled)
+      const [easyRes, pillRes] = await Promise.allSettled([
         apiGet('easy', { itemName: name, pageNo: 1, numOfRows: 50 }),
-        apiGet('pill', { item_name: name, pageNo: 1, numOfRows: 50 }),
-        apiGet('permit', { item_name: name, pageNo: 1, numOfRows: 50 })
+        apiGet('pill', { item_name: name, pageNo: 1, numOfRows: 50 })
       ]);
 
       // 품목 코드(seq)가 같은 항목을 각 응답에서 찾아 하나로 합침
       const pick = (res) => (res.status === 'fulfilled' ? findBySeq(res.value.items, seq) : null);
       const easy = pick(easyRes);
       const pill = pick(pillRes);
-      const permit = pick(permitRes);
 
-      if (!easy && !pill && !permit) {
+      if (!easy && !pill) {
         showStatus(main, '이 약의 정보를 찾지 못했습니다. 이름이 바뀌었거나 데이터에 없는 약일 수 있습니다.', 'error');
         return;
       }
@@ -95,11 +94,9 @@
       }
 
       if (pill) parts.push(renderPill(pill));
-      if (permit) parts.push(renderPermit(permit));
       parts.push(renderSources([
         ['e약은요 (복약정보)', easyRes, easy],
-        ['낱알식별 (외형)', pillRes, pill],
-        ['제품 허가정보', permitRes, permit]
+        ['낱알식별 (외형)', pillRes, pill]
       ]));
 
       main.replaceChildren(...parts.filter(Boolean));
@@ -141,19 +138,6 @@
       return el('section', { class: 'section' }, [
         el('h2', { text: '알약 외형' }),
         el('table', { class: 'kv' }, [el('tbody', {}, rows)])
-      ]);
-    }
-
-    /** 허가정보는 필드 구성을 아직 확인하지 못해, 짧은 값만 원본 필드명 그대로 표시 */
-    function renderPermit(permit) {
-      const rows = Object.entries(permit)
-        .filter(([, v]) => typeof v === 'string' && clean(v) && clean(v).length <= 120)
-        .map(([k, v]) => el('tr', {}, [el('th', { text: k }), el('td', { text: clean(v) })]));
-      return el('section', { class: 'section' }, [
-        el('details', {}, [
-          el('summary', { text: '제품 허가정보 (원본 필드)' }),
-          el('table', { class: 'kv' }, [el('tbody', {}, rows)])
-        ])
       ]);
     }
 
