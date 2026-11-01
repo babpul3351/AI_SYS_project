@@ -5,14 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>약 상세 정보 | 약 알아보기</title>
   <link rel="icon" href="data:,">
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header id="site-header"></header>
 
-  <main class="wrap" id="main">
-    <p class="status">불러오는 중…</p>
-  </main>
+  <main class="wrap" id="main"></main>
 
   <footer id="site-footer"></footer>
 
@@ -25,14 +24,15 @@
     const name = getParam('name');
 
     // e약은요 필드 → 화면 제목 (필드명은 실제 응답으로 확인함)
+    // warn: true 인 항목은 주황 계열로 강조
     const EASY_SECTIONS = [
-      ['efcyQesitm', '효능'],
-      ['useMethodQesitm', '복용 방법'],
-      ['atpnWarnQesitm', '복용 전 경고'],
-      ['atpnQesitm', '주의사항'],
-      ['intrcQesitm', '함께 먹으면 안 되는 약·음식'],
-      ['seQesitm', '부작용'],
-      ['depositMethodQesitm', '보관 방법']
+      ['efcyQesitm', '효능', false],
+      ['useMethodQesitm', '복용 방법', false],
+      ['atpnWarnQesitm', '복용 전 경고', true],
+      ['atpnQesitm', '주의사항', false],
+      ['intrcQesitm', '함께 먹으면 안 되는 약·음식', true],
+      ['seQesitm', '부작용', true],
+      ['depositMethodQesitm', '보관 방법', false]
     ];
 
     // 낱알식별 필드 → 표 항목 (필드명은 실제 응답으로 확인함)
@@ -53,6 +53,8 @@
         showStatus(main, '잘못된 접근입니다. 검색 화면에서 약을 선택하세요.', 'error');
         return;
       }
+
+      showSkeletonBlock(main, 8);
 
       // 두 API를 동시에 호출. 하나가 실패해도 나머지로 화면을 구성 (Promise.allSettled)
       const [easyRes, pillRes] = await Promise.allSettled([
@@ -78,12 +80,12 @@
       };
       document.title = `${med.name} | 약 알아보기`;
 
-      const parts = [renderHead(med), renderDuplicateNotice(med)];
+      const parts = [renderHead(med, pill), renderDuplicateNotice(med)];
 
       if (easy) {
-        EASY_SECTIONS.forEach(([key, label]) => {
+        EASY_SECTIONS.forEach(([key, label, warn]) => {
           if (clean(easy[key])) {
-            parts.push(el('section', { class: 'section' }, [
+            parts.push(el('section', { class: warn ? 'section section-warn' : 'section' }, [
               el('h2', { text: label }),
               el('p', { class: 'prewrap', text: clean(easy[key]) })
             ]));
@@ -102,14 +104,18 @@
       main.replaceChildren(...parts.filter(Boolean));
     }
 
-    function renderHead(med) {
+    function renderHead(med, pill) {
       const ingredient = extractIngredient(med.name);
       return el('div', { class: 'detail-head' }, [
         imgEl(med.image, med.name),
         el('div', {}, [
+          el('span', { class: 'eyebrow', text: '의약품 상세 정보' }),
           el('h1', { text: med.name }),
           el('p', { class: 'lead', text: med.entp }),
-          ingredient ? el('p', {}, [el('span', { class: 'badge', text: `성분 ${ingredient}` })]) : null,
+          el('div', { class: 'badge-row' }, [
+            pill ? typeBadge(pill.ETC_OTC_NAME) : null,
+            ingredient ? el('span', { class: 'badge', text: `성분 ${ingredient}` }) : null
+          ]),
           el('p', { class: 'card-sub', text: `품목기준코드 ${med.seq}` }),
           cabinetButton(med)
         ])
