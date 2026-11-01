@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>알약 모양 찾기 | 약 알아보기</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="site-header"></header>
+
+  <main class="wrap">
+    <h1>알약 모양 찾기</h1>
+    <p class="lead">약 이름 일부로 낱알 정보를 불러온 뒤, 모양·색상·표시 문자로 좁혀서 손에 있는 알약과 비교합니다.</p>
+
+    <form class="search-bar" id="search-form">
+      <input type="search" id="q" placeholder="약 이름 일부 (예: 타이레놀)" autocomplete="off" aria-label="약 이름">
+      <button class="btn" type="submit">불러오기</button>
+    </form>
+
+    <div class="filters" id="filters" hidden>
+      <div class="chip-row" id="shape-row"></div>
+      <div class="chip-row" id="color-row"></div>
+      <div class="chip-row">
+        <span class="label">표시</span>
+        <input type="text" id="print" placeholder="알약에 새겨진 글자 (예: TYLENOL, 500)" aria-label="표시 문자">
+      </div>
+    </div>
+
+    <p class="meta-line" id="meta"></p>
+    <div id="results"></div>
+  </main>
+
+  <footer id="site-footer"></footer>
+
+  <script src="common.js"></script>
+  <script>
+    renderLayout('identify.html');
+
+    const form = document.getElementById('search-form');
+    const input = document.getElementById('q');
+    const filters = document.getElementById('filters');
+    const shapeRow = document.getElementById('shape-row');
+    const colorRow = document.getElementById('color-row');
+    const printInput = document.getElementById('print');
+    const meta = document.getElementById('meta');
+    const results = document.getElementById('results');
+
+    // 불러온 원본과 현재 필터 상태
+    const state = { items: [], format: '', total: 0, shape: '', color: '', print: '' };
+
+    async function load(query) {
+      query = clean(query);
+      if (query.length < 2) {
+        showStatus(results, '두 글자 이상 입력하세요.');
+        return;
+      }
+      history.replaceState(null, '', `?q=${encodeURIComponent(query)}`);
+      filters.hidden = true;
+      meta.replaceChildren();
+      showStatus(results, '불러오는 중…');
+      try {
+        // 이 페이지는 XML로 요청해 DOMParser로 파싱 (실패 시 JSON으로 재요청)
+        const data = await apiGetPreferXml('pill', { item_name: query, pageNo: 1, numOfRows: 100 });
+        Object.assign(state, { items: data.items, format: data.format, total: data.totalCount, shape: '', color: '', print: '' });
+        printInput.value = '';
+        buildFilters();
+        render();
+      } catch (err) {
+        showStatus(results, errorMessage(err), 'error');
+      }
+    }
+
+    /** 불러온 결과에 실제로 있는 값만 칩으로 만듦 */
+    function buildFilters() {
+      const uniq = (key) => [...new Set(state.items.map((i) => clean(i[key])).filter(Boolean))].sort();
+      buildChipRow(shapeRow, '모양', uniq('DRUG_SHAPE'), 'shape');
+      buildChipRow(colorRow, '색상', uniq('COLOR_CLASS1'), 'color');
+      filters.hidden = state.items.length === 0;
+    }
+
+    function buildChipRow(row, label, values, key) {
+      const chips = ['', ...values].map((value) => {
+        const chip = el('button', { type: 'button', class: 'chip', text: value || '전체' });
+        chip.addEventListener('click', () => {
+          state[key] = value;
+          row.querySelectorAll('.chip').forEach((c) => c.classList.toggle('active', c === chip));
+          render();
+        });
+        if (value === state[key]) chip.classList.add('active');
+        return chip;
+      });
+      row.replaceChildren(el('span', { class: 'label', text: label }), ...chips);
+    }
+
+    function matches(item) {
+      if (state.shape && clean(item.DRUG_SHAPE) !== state.shape) return false;
+      if (state.color && clean(item.COLOR_CLASS1) !== state.color) return false;
+      if (state.print) {
+        const printed = `${item.PRINT_FRONT || ''} ${item.PRINT_BACK || ''}`.toUpperCase();
+        if (!printed.includes(state.print.toUpperCase())) return false;
+      }
+      return true;
+    }
+
+    function render() {
+      const shown = state.items.filter(matches);
+      const metaParts = [
+        el('span', { text: `불러온 ${state.items.length}건 중 ${shown.length}건 표시` }),
+        el('span', { class: 'badge', text: `응답 형식 ${state.format}` })
+      ];
+      if (state.total > state.items.length) {
+        metaParts.push(el('span', { text: `(전체 ${state.total}건 중 앞 ${state.items.length}건만 불러옴. 이름을 더 구체적으로 입력하세요)` }));
+      }
+      meta.replaceChildren(...metaParts);
+
+      if (shown.length === 0) {
+        showStatus(results, state.items.length ? '조건에 맞는 알약이 없습니다. 필터를 줄여 보세요.' : '낱알 정보가 없습니다.');
+        return;
+      }
+
+      const grid = el('div', { class: 'grid' });
+      shown.forEach((item) => {
+        const med = { seq: item.ITEM_SEQ, name: item.ITEM_NAME, entp: item.ENTP_NAME, image: item.ITEM_IMAGE };
+        const size = [item.LENG_LONG, item.LENG_SHORT, item.THICK].every(Boolean)
+          ? `${item.LENG_LONG} × ${item.LENG_SHORT} × ${item.THICK} mm` : '크기 정보 없음';
+        const printed = [item.PRINT_FRONT, item.PRINT_BACK].filter(Boolean).join(' / ') || '표시 없음';
+        grid.append(
+          el('article', { class: 'card' }, [
+            imgEl(med.image, med.name),
+            el('div', { class: 'card-body' }, [
+              el('p', { class: 'card-title', text: med.name }),
+              el('p', { class: 'card-sub', text: `${clean(item.ETC_OTC_NAME)} · ${clean(item.CLASS_NAME)}` }),
+              el('p', { class: 'card-text', text: `${clean(item.DRUG_SHAPE)} · ${clean(item.COLOR_CLASS1)} · 표시: ${printed}` }),
+              el('p', { class: 'card-sub', text: size })
+            ]),
+            el('div', { class: 'card-actions' }, [
+              el('a', { href: `detail.html?seq=${encodeURIComponent(med.seq)}&name=${encodeURIComponent(med.name)}`, text: '자세히' }),
+              cabinetButton(med)
+            ])
+          ])
+        );
+      });
+      results.replaceChildren(grid);
+    }
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      load(input.value);
+    });
+
+    printInput.addEventListener('input', debounce(() => {
+      state.print = clean(printInput.value);
+      render();
+    }, 250));
+
+    const initialQ = getParam('q');
+    if (initialQ) {
+      input.value = initialQ;
+      load(initialQ);
+    } else {
+      showStatus(results, '약 이름 일부를 입력해 낱알 정보를 불러오세요.');
+    }
+  </script>
+</body>
+</html>
