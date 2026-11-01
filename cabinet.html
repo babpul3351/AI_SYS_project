@@ -5,24 +5,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>내 약 보관함 | 약 알아보기</title>
   <link rel="icon" href="data:,">
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header id="site-header"></header>
 
   <main class="wrap">
-    <h1>내 약 보관함</h1>
-    <p class="lead">담아 둔 약을 최대 3개까지 골라 효능과 주의사항을 나란히 비교합니다. 보관함은 이 브라우저에만 저장됩니다.</p>
+    <div class="page-head">
+      <span class="eyebrow">내 브라우저에만 저장됩니다</span>
+      <h1>내 약 보관함</h1>
+      <p class="lead">담아 둔 약을 최대 3개까지 골라 효능과 주의사항을 나란히 비교합니다.</p>
+    </div>
 
     <div class="tabs" role="tablist">
-      <button class="tab active" type="button" data-tab="mine">내 보관함</button>
-      <button class="tab" type="button" data-tab="otc">편의점 상비약</button>
+      <button class="tab active" type="button" role="tab" data-tab="mine" aria-selected="true">내 보관함</button>
+      <button class="tab" type="button" role="tab" data-tab="otc" aria-selected="false">편의점 상비약</button>
     </div>
 
     <section id="tab-mine">
       <div id="dup"></div>
       <div id="list"></div>
-      <p style="margin-top:12px">
+      <p class="compare-bar">
         <button class="btn" type="button" id="compare-btn" disabled>선택한 약 비교하기</button>
       </p>
       <div id="compare"></div>
@@ -50,17 +54,21 @@
 
     // ===== 탭 전환 =====
     let otcLoaded = false;
-    document.querySelectorAll('.tab').forEach((tab) => {
-      tab.addEventListener('click', () => {
-        document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t === tab));
-        const name = tab.dataset.tab;
-        document.getElementById('tab-mine').hidden = name !== 'mine';
-        document.getElementById('tab-otc').hidden = name !== 'otc';
-        if (name === 'otc' && !otcLoaded) {
-          otcLoaded = true;
-          loadOtc();
-        }
+    function openTab(name) {
+      document.querySelectorAll('.tab').forEach((t) => {
+        const on = t.dataset.tab === name;
+        t.classList.toggle('active', on);
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
       });
+      document.getElementById('tab-mine').hidden = name !== 'mine';
+      document.getElementById('tab-otc').hidden = name !== 'otc';
+      if (name === 'otc' && !otcLoaded) {
+        otcLoaded = true;
+        loadOtc();
+      }
+    }
+    document.querySelectorAll('.tab').forEach((tab) => {
+      tab.addEventListener('click', () => openTab(tab.dataset.tab));
     });
 
     // ===== 내 보관함 =====
@@ -80,7 +88,7 @@
         return;
       }
 
-      listBox.replaceChildren(...list.map((m) => {
+      listBox.replaceChildren(el('div', { class: 'cabinet-list' }, list.map((m) => {
         const checkbox = el('input', { type: 'checkbox', 'aria-label': `${m.name} 비교 선택` });
         checkbox.checked = selected.has(m.seq);
         checkbox.addEventListener('change', () => {
@@ -112,7 +120,7 @@
           ]),
           removeBtn
         ]);
-      }));
+      })));
       updateCompareBtn();
     }
 
@@ -134,7 +142,7 @@
 
     compareBtn.addEventListener('click', async () => {
       const meds = loadCabinet().filter((m) => selected.has(m.seq));
-      showStatus(compareBox, '비교 정보를 불러오는 중…');
+      showSkeletonBlock(compareBox, 6);
 
       // 선택한 약들을 동시에 조회
       const results = await Promise.allSettled(
@@ -150,7 +158,7 @@
         ])
       );
       compareBox.replaceChildren(
-        el('h2', { text: '비교 결과', style: 'font-size:1.1rem;margin-top:20px' }),
+        el('h2', { class: 'section-title', text: '비교 결과' }),
         el('div', { class: 'table-scroll' }, [
           el('table', { class: 'compare' }, [el('thead', {}, [head]), el('tbody', {}, body)])
         ])
@@ -161,12 +169,12 @@
     async function loadOtc() {
       const box = document.getElementById('otc');
       const meta = document.getElementById('otc-meta');
-      showStatus(box, '불러오는 중…');
+      showSkeletonBlock(box, 8);
       try {
         const data = await apiGetPreferXml('otc', { pageNo: 1, numOfRows: 50 });
         meta.replaceChildren(
           el('span', { text: `${data.totalCount}개 품목` }),
-          el('span', { class: 'badge', text: `응답 형식 ${data.format}` })
+          formatBadge(data.format)
         );
         const rows = data.items.map((item) =>
           el('tr', {}, [
@@ -190,6 +198,8 @@
     }
 
     renderList();
+    // 첫 화면의 "편의점 상비약" 바로가기(?tab=otc)로 들어온 경우
+    if (getParam('tab') === 'otc') openTab('otc');
   </script>
 </body>
 </html>
