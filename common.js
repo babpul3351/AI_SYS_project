@@ -4,7 +4,6 @@
  */
 
 // ===== 설정 =====
-// TODO: 본인 Worker 주소로 바꿀 것 (끝에 / 없이)
 const WORKER_URL = 'https://aisysproject.swells200483.workers.dev';
 
 const CABINET_KEY = 'medcabinet.v1';
@@ -12,9 +11,10 @@ const PLACEHOLDER_IMG =
   'data:image/svg+xml;utf8,' +
   encodeURIComponent(
     '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="120" viewBox="0 0 160 120">' +
-    '<rect width="160" height="120" fill="#e5e7eb"/>' +
-    '<rect x="45" y="45" width="70" height="30" rx="15" fill="#cbd5e1"/>' +
-    '<text x="80" y="105" font-size="11" text-anchor="middle" fill="#64748b">이미지 없음</text></svg>'
+    '<rect width="160" height="120" fill="#eef4f3"/>' +
+    '<rect x="50" y="42" width="60" height="26" rx="13" fill="#cfe3e0"/>' +
+    '<rect x="80" y="42" width="30" height="26" rx="13" fill="#b3d4cf"/>' +
+    '<text x="80" y="98" font-size="11" text-anchor="middle" fill="#6b8582" font-family="sans-serif">이미지 없음</text></svg>'
   );
 
 // ===== API 호출 =====
@@ -27,7 +27,7 @@ class ApiError extends Error {
 
 /**
  * Worker를 거쳐 공공데이터포털 API 호출
- * @param {string} api    worker.js ROUTES 별칭 (easy, pill, permit, otc)
+ * @param {string} api    worker.js ROUTES 별칭 (easy, pill, otc)
  * @param {object} params 그대로 전달할 요청 파라미터
  * @param {'json'|'xml'} format 요청 형식
  * @returns {Promise<{items: object[], totalCount: number, format: 'JSON'|'XML'}>}
@@ -170,6 +170,46 @@ function showStatus(container, message, kind = 'info') {
   container.replaceChildren(el('p', { class: `status status-${kind}`, text: message }));
 }
 
+/** 불러오는 동안 카드 모양의 회색 자리표시를 보여줌 */
+function showSkeleton(container, count = 6) {
+  const cards = Array.from({ length: count }, () =>
+    el('div', { class: 'card skeleton-card', 'aria-hidden': 'true' }, [
+      el('div', { class: 'sk sk-img' }),
+      el('div', { class: 'card-body' }, [
+        el('div', { class: 'sk sk-line sk-w80' }),
+        el('div', { class: 'sk sk-line sk-w50' }),
+        el('div', { class: 'sk sk-line sk-w90' })
+      ])
+    ])
+  );
+  container.replaceChildren(
+    el('p', { class: 'sr-only', role: 'status', text: '불러오는 중입니다' }),
+    el('div', { class: 'grid' }, cards)
+  );
+}
+
+/** 상세 페이지용 문단형 자리표시 */
+function showSkeletonBlock(container, lines = 6) {
+  container.replaceChildren(
+    el('p', { class: 'sr-only', role: 'status', text: '불러오는 중입니다' }),
+    el('div', { class: 'section', 'aria-hidden': 'true' },
+      Array.from({ length: lines }, (_, i) => el('div', { class: `sk sk-line ${i % 3 === 2 ? 'sk-w50' : 'sk-w90'}` })))
+  );
+}
+
+/** 응답 형식 배지 (JSON / XML 색 구분) */
+function formatBadge(format) {
+  const f = String(format || '').toUpperCase();
+  return el('span', { class: `badge ${f === 'XML' ? 'badge-xml' : 'badge-json'}`, text: `응답 형식 ${f || '-'}` });
+}
+
+/** 전문의약품 / 일반의약품 배지 */
+function typeBadge(etcOtcName) {
+  const t = clean(etcOtcName);
+  if (!t) return null;
+  return el('span', { class: `badge ${t.includes('전문') ? 'badge-etc' : 'badge-otc'}`, text: t });
+}
+
 function errorMessage(err) {
   const map = {
     SERVICE_KEY_NOT_SET: '서버에 인증키가 설정되지 않았습니다.',
@@ -237,6 +277,7 @@ function cabinetButton(med) {
     const saved = inCabinet(med.seq);
     btn.textContent = saved ? '보관함에서 빼기' : '보관함에 담기';
     btn.classList.toggle('is-saved', saved);
+    btn.setAttribute('aria-pressed', saved ? 'true' : 'false');
   };
   btn.addEventListener('click', () => {
     toggleCabinet(med);
@@ -268,9 +309,12 @@ function renderLayout(active) {
   if (header) {
     header.replaceChildren(
       el('div', { class: 'wrap header-inner' }, [
-        el('a', { href: 'index.html', class: 'brand', text: '약 알아보기' }),
-        el('nav', {}, pages.map(([href, label]) =>
-          el('a', { href, class: href === active ? 'active' : '', text: label })
+        el('a', { href: 'index.html', class: 'brand' }, [
+          el('span', { class: 'brand-mark', 'aria-hidden': 'true' }),
+          el('span', { text: '약 알아보기' })
+        ]),
+        el('nav', { 'aria-label': '주요 메뉴' }, pages.map(([href, label]) =>
+          el('a', { href, class: href === active ? 'active' : '', 'aria-current': href === active ? 'page' : null, text: label })
         ))
       ])
     );
@@ -278,9 +322,10 @@ function renderLayout(active) {
   const footer = document.getElementById('site-footer');
   if (footer) {
     footer.replaceChildren(
-      el('div', { class: 'wrap' }, [
-        el('p', { text: '이 서비스는 식품의약품안전처 공공데이터(공공데이터포털 OpenAPI)를 보여주는 학습용 웹앱입니다.' }),
-        el('p', { text: '의사·약사의 진단이나 처방을 대신하지 않습니다. 복용 전 반드시 전문가와 상의하세요.' })
+      el('div', { class: 'wrap footer-inner' }, [
+        el('p', { class: 'footer-title', text: '약 알아보기' }),
+        el('p', { text: '데이터 출처: 식품의약품안전처 (공공데이터포털 OpenAPI · e약은요, 의약품 낱알식별, 안전상비의약품)' }),
+        el('p', { text: '이 서비스는 학습용 웹앱이며 의사·약사의 진단이나 처방을 대신하지 않습니다. 복용 전 반드시 전문가와 상의하세요.' })
       ])
     );
   }
