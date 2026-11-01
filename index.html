@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>약 이름 검색 | 약 알아보기</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="site-header"></header>
+
+  <main class="wrap">
+    <h1>약 이름 검색</h1>
+    <p class="lead">약 이름을 입력하면 식약처 e약은요 정보에서 효능과 복용법을 찾아줍니다.</p>
+
+    <form class="search-bar" id="search-form">
+      <input type="search" id="q" placeholder="예: 타이레놀, 베아제" autocomplete="off" aria-label="약 이름">
+      <button class="btn" type="submit">검색</button>
+    </form>
+
+    <p class="meta-line" id="meta"></p>
+    <div id="results"></div>
+    <div class="pager" id="pager"></div>
+  </main>
+
+  <footer id="site-footer"></footer>
+
+  <script src="common.js"></script>
+  <script>
+    renderLayout('index.html');
+
+    const ROWS = 12;
+    const form = document.getElementById('search-form');
+    const input = document.getElementById('q');
+    const results = document.getElementById('results');
+    const meta = document.getElementById('meta');
+    const pager = document.getElementById('pager');
+    let requestId = 0; // 늦게 도착한 이전 응답이 화면을 덮어쓰지 않도록
+
+    async function search(query, page) {
+      query = clean(query);
+      meta.replaceChildren();
+      pager.replaceChildren();
+      if (query.length < 2) {
+        showStatus(results, '두 글자 이상 입력하세요.');
+        return;
+      }
+
+      // 주소에 검색어와 페이지를 남겨 새로고침·뒤로가기에도 유지
+      history.replaceState(null, '', `?q=${encodeURIComponent(query)}&page=${page}`);
+
+      const myId = ++requestId;
+      showStatus(results, '불러오는 중…');
+      try {
+        const data = await apiGet('easy', { itemName: query, pageNo: page, numOfRows: ROWS });
+        if (myId !== requestId) return;
+        renderResults(data, query, page);
+      } catch (err) {
+        if (myId !== requestId) return;
+        showStatus(results, errorMessage(err), 'error');
+      }
+    }
+
+    function renderResults(data, query, page) {
+      meta.replaceChildren(
+        el('span', { text: `"${query}" 검색 결과 ${data.totalCount}건` }),
+        el('span', { class: 'badge', text: `응답 형식 ${data.format}` })
+      );
+
+      if (data.items.length === 0) {
+        showStatus(results, '검색 결과가 없습니다. e약은요에는 주로 일반의약품이 등록되어 있습니다. 알약 모양 찾기에서도 검색해 보세요.');
+        return;
+      }
+
+      const grid = el('div', { class: 'grid' });
+      data.items.forEach((item) => {
+        const med = { seq: item.itemSeq, name: item.itemName, entp: item.entpName, image: item.itemImage };
+        const detailUrl = `detail.html?seq=${encodeURIComponent(med.seq)}&name=${encodeURIComponent(med.name)}`;
+        grid.append(
+          el('article', { class: 'card' }, [
+            imgEl(med.image, med.name),
+            el('div', { class: 'card-body' }, [
+              el('p', { class: 'card-title', text: med.name }),
+              el('p', { class: 'card-sub', text: med.entp }),
+              el('p', { class: 'card-text', text: summarize(item.efcyQesitm) })
+            ]),
+            el('div', { class: 'card-actions' }, [
+              el('a', { href: detailUrl, text: '자세히' }),
+              cabinetButton(med)
+            ])
+          ])
+        );
+      });
+      results.replaceChildren(grid);
+
+      const lastPage = Math.max(1, Math.ceil(data.totalCount / ROWS));
+      pager.replaceChildren(
+        el('button', { class: 'btn btn-ghost', type: 'button', text: '이전', disabled: page <= 1 ? 'disabled' : null,
+          onclick: () => search(query, page - 1) }),
+        el('span', { text: `${page} / ${lastPage}` }),
+        el('button', { class: 'btn btn-ghost', type: 'button', text: '다음', disabled: page >= lastPage ? 'disabled' : null,
+          onclick: () => search(query, page + 1) })
+      );
+    }
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      search(input.value, 1);
+    });
+
+    // 입력을 멈추고 0.5초 뒤 자동 검색 (디바운스: 글자마다 API를 부르지 않음)
+    input.addEventListener('input', debounce(() => {
+      if (clean(input.value).length >= 2) search(input.value, 1);
+    }, 500));
+
+    // 주소에 검색어가 있으면 바로 검색 (보관함 등 다른 페이지에서 넘어온 경우)
+    const initialQ = getParam('q');
+    if (initialQ) {
+      input.value = initialQ;
+      search(initialQ, Number(getParam('page')) || 1);
+    } else {
+      showStatus(results, '검색어를 입력하세요.');
+    }
+  </script>
+</body>
+</html>
